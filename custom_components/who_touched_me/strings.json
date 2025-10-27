@@ -1,0 +1,36 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up WhoTouchedMe",
+        "description": "This integration will start an HTTP server to receive ekey fingerprint notifications.\n\nYou can configure user and device mapping in the integration options after setup.",
+        "data": {
+          "port": "HTTP Server Port",
+          "secret_token": "Secret Token (optional - leave empty to disable authentication)"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only a single instance is allowed.",
+      "already_configured": "Integration is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "WhoTouchedMe Options",
+        "description": "Configure HTTP server settings and user/device mapping from your ekey system.\n\nPaste your system_mapping_export.json content below:",
+        "data": {
+          "port": "HTTP Server Port",
+          "secret_token": "Secret Token (leave empty to disable authentication)",
+          "mapping_json": "Mapping JSON (from ekey app export)"
+        }
+      }
+    },
+    "error": {
+      "invalid_json": "Invalid JSON format",
+      "invalid_json_structure": "JSON must be an object/dictionary",
+      "missing_required_fields": "JSON must contain 'users' or 'devices' fields"
+    }
+  }
+}
