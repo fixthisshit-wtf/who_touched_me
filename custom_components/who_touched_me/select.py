@@ -1,148 +1,151 @@
-from __future__ import annotations
-
+"""Select platform for WhoTouchedMe integration."""
 import logging
-from typing import Any
-
 from homeassistant.components.select import SelectEntity
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import DOMAIN, FINGER_OPTIONS
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> bool:
     """Set up WhoTouchedMe select entities from a config entry."""
-
-    # hole die user-map, die im __init__.py beim setup gespeichert wurde
-    users = hass.data[DOMAIN][entry.entry_id]["users"]
-
-    entities: list[WhoTouchedMeFingerSelect] = []
-
-    for user_id, user_name in users.items():
-        entities.append(
-            WhoTouchedMeFingerSelect(
-                entry_id=entry.entry_id,
-                user_id=user_id,
-                user_name=user_name,
-            )
+    # Get entry data
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    mapping = entry_data.get("mapping")
+    
+    # If no mapping, don't create any entities
+    if not mapping or "users" not in mapping:
+        _LOGGER.info("No mapping configured - no select entities will be created")
+        return True
+    
+    # Initialize sensors dict if not exists
+    if "sensors" not in entry_data:
+        entry_data["sensors"] = {}
+    
+    # Create select entities for each user
+    entities = []
+    for user in mapping["users"]:
+        user_id = user.get("userId")
+        user_name = user.get("userName", f"user_{user_id}")
+        
+        if user_id is None:
+            continue
+        
+        # Create finger select entity
+        finger_select = WhoTouchedMeFingerSelect(
+            entry_id=entry.entry_id,
+            user_id=user_id,
+            user_name=user_name,
         )
-
-    # Entities an HA anhängen
+        
+        # Store in hass.data for http_receiver access
+        # Append to existing sensors list (from sensor.py)
+        if str(user_id) in entry_data["sensors"]:
+            entry_data["sensors"][str(user_id)].append(finger_select)
+        else:
+            entry_data["sensors"][str(user_id)] = [finger_select]
+        
+        entities.append(finger_select)
+    
     async_add_entities(entities)
-
-    # Referenz speichern, damit http_receiver sie updaten kann
-    hass.data[DOMAIN][entry.entry_id]["finger_select_entities"] = {
-        e.user_id: e for e in entities
-    }
-
-    _LOGGER.debug("WhoTouchedMe select entities set up: %s", users)
+    _LOGGER.info(
+        "Created %d select entities for %d users",
+        len(entities),
+        len(mapping["users"])
+    )
+    
+    return True
 
 
 class WhoTouchedMeFingerSelect(SelectEntity):
-    """Select entity that shows the last finger used by a given user.
-
-    WICHTIG: Wir erzwingen ein State-/Attribute-Update bei jedem Scan,
-    damit Automationen mit Zustand-Trigger jedes Mal feuern.
-    """
-
-    _attr_icon = "mdi:fingerprint"
+    """Representation of a WhoTouchedMe finger select entity."""
+    
     _attr_should_poll = False
-    _attr_options = FINGER_OPTIONS
+    _attr_has_entity_name = True
 
-    def __init__(self, entry_id: str, user_id: str, user_name: str) -> None:
-        """Init the select entity for this user."""
+    def __init__(
+        self,
+        entry_id: str,
+        user_id: str,
+        user_name: str,
+    ):
+        """Initialize the select entity."""
         self._entry_id = entry_id
         self._user_id = user_id
         self._user_name = user_name
-
-        # sichtbarer Wert (state)
         self._attr_current_option = "none"
-
-        # zusätzliche Attribute (werden in extra_state_attributes exposed)
-        self._event_data: dict[str, Any] = {}
-
-        # NEW: Counter für jeden Scan, damit sich Attribute immer ändern
-        self._event_counter: int = 0
-
-        # Anzeigename und unique_id so wie vorher
-        self._attr_name = f"{self._user_name} Last Finger"
+        self._event_data = {}
+        
+        # Set available options
+        self._attr_options = FINGER_OPTIONS
+        
+        # Generate unique_id: domain_entryid_userid_lastfinger
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{user_id}_last_finger"
+        
+        # Set name and icon
+        self._attr_name = "Last Finger"
+        self._attr_icon = "mdi:fingerprint"
 
-        # DeviceInfo, damit es schön unter deinem Integration-"Gerät" hängt
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry_id)},
-            name="Who Touched Me",
-            manufacturer="fixthisshit.wtf",
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information about this entity."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._entry_id}_{self._user_id}")},
+            name=self._user_name,
+            manufacturer="ekey",
+            model="Fingerprint User",
         )
 
-    #
-    # Hilfs-Properties, damit http_receiver weiterarbeiten kann
-    #
     @property
-    def user_id(self) -> str:
-        return self._user_id
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose Zusatzinfos vom letzten Scan als Attribute."""
+    def extra_state_attributes(self):
+        """Return the state attributes."""
         return self._event_data
 
-    @callback
-    def update_sensor(self, event_data: dict) -> None:
-        """Wird von http_receiver bei JEDEM Scan aufgerufen.
-
-        Wichtig: Wir erhöhen jedes Mal den Counter, auch wenn derselbe Finger
-        nochmal kommt. Dadurch ändert sich das Attribut 'event_counter' jedes Mal
-        -> Home Assistant sieht das als Update
-        -> Deine Automation mit Zustand-Trigger feuert jedes Mal.
+    async def async_select_option(self, option: str) -> None:
+        """Change the selected option.
+        
+        This entity is read-only and updated by fingerprint events.
+        Users cannot manually change the value.
         """
+        raise NotImplementedError(
+            "This select entity is read-only and cannot be manually changed"
+        )
 
-        # 1. Counter +1 bei jedem Finger-Event
-        self._event_counter += 1
-
-        # 2. Finger (State)
+    @callback
+    def update_sensor(self, event_data: dict):
+        """Update the select state and attributes.
+        
+        Called by http_receiver when an event is received.
+        """
+        # Store complete event data as attributes
+        self._event_data = event_data
+        
+        # Update current option
         finger_name = event_data.get("finger_name", "none")
-
         if finger_name in self._attr_options:
             self._attr_current_option = finger_name
         else:
+            # Fallback if finger_name is not in options
             self._attr_current_option = "none"
             _LOGGER.warning(
                 "Unknown finger name '%s' for user %s, setting to 'none'",
                 finger_name,
-                self._user_name,
+                self._user_name
             )
-
-        # 3. Attributes zusammenbauen, inkl. Counter
-        data_with_counter = dict(event_data)
-        data_with_counter["event_counter"] = self._event_counter
-        self._event_data = data_with_counter
-
-        # 4. Home Assistant updaten (immer!)
+        
+        # Schedule an update to Home Assistant
         self.async_write_ha_state()
-
+        
         _LOGGER.debug(
-            "Updated Last Finger for %s (user_id=%s): %s (count=%s)",
-            self._user_name,
-            self._user_id,
-            self._attr_current_option,
-            self._event_counter,
+            "Updated select %s: %s",
+            self.entity_id,
+            self._attr_current_option
         )
-
-    async def async_select_option(self, option: str) -> None:
-        """select.* Entities müssen diese Methode haben.
-
-        Wir erlauben das Setzen im UI (kosmetisch), aber das hat KEINEN Effekt
-        auf ekey oder irgendwas anderes.
-        """
-        if option in self._attr_options:
-            self._attr_current_option = option
-            self.async_write_ha_state()
-        else:
-            _LOGGER.warning(
-                "Tried to set invalid finger option '%s' for %s",
-                option,
-                self._user_name,
-            )
