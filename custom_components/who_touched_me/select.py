@@ -148,7 +148,14 @@ class WhoTouchedMeFingerSelect(SelectEntity):
                 self._user_name
             )
         
-        # Schedule an update to Home Assistant
+        # WORKAROUND: Force state change by toggling to None first
+        # This ensures automations always trigger even with same finger
+        old_option = self._attr_current_option
+        self._attr_current_option = "none"
+        self.async_write_ha_state()
+        
+        # Now set the actual finger (with small delay to ensure two distinct events)
+        self._attr_current_option = old_option
         self.async_write_ha_state()
         
         _LOGGER.debug(

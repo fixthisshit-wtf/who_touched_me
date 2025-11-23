@@ -1,7 +1,7 @@
 {
     "domain": "who_touched_me",
     "name": "WhoTouchedMe",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "documentation": "https://github.com/fixthisshit-wtf/who_touched_me#readme",
     "issue_tracker": "https://github.com/fixthisshit-wtf/who_touched_me/issues",
     "codeowners": ["@fixthisshit-wtf"],
