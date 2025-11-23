@@ -79,6 +79,7 @@ class WhoTouchedMeSensor(SensorEntity):
     
     _attr_should_poll = False
     _attr_has_entity_name = True
+    _attr_force_update = True
 
     def __init__(
         self,
@@ -94,6 +95,7 @@ class WhoTouchedMeSensor(SensorEntity):
         self._sensor_type = sensor_type
         self._attr_native_value = None
         self._event_data = {}
+        self._update_counter = 0
         
         # Generate unique_id: domain_entryid_userid_sensortype
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{user_id}_{sensor_type}"
@@ -120,14 +122,19 @@ class WhoTouchedMeSensor(SensorEntity):
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
-        return self._event_data
+        return {
+            **self._event_data,
+            "update_count": self._update_counter
+        }
 
     @callback
     def update_sensor(self, event_data: dict):
         """Update the sensor state and attributes.
-        
+
         Called by http_receiver when an event is received.
         """
+        self._update_counter += 1
+
         # Store complete event data as attributes
         self._event_data = event_data
         
@@ -148,7 +155,8 @@ class WhoTouchedMeSensor(SensorEntity):
         self.async_write_ha_state()
         
         _LOGGER.debug(
-            "Updated sensor %s: %s",
+            "Updated sensor %s: %s (update_count: %d)",
             self.entity_id,
-            self._attr_native_value
+            self._attr_native_value,
+            self._update_counter
         )
