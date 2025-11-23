@@ -70,7 +70,6 @@ class WhoTouchedMeFingerSelect(SelectEntity):
     
     _attr_should_poll = False
     _attr_has_entity_name = True
-    _attr_force_update = True
 
     def __init__(
         self,
@@ -84,7 +83,6 @@ class WhoTouchedMeFingerSelect(SelectEntity):
         self._user_name = user_name
         self._attr_current_option = "none"
         self._event_data = {}
-        self._update_counter = 0
         
         # Set available options
         self._attr_options = FINGER_OPTIONS
@@ -109,10 +107,7 @@ class WhoTouchedMeFingerSelect(SelectEntity):
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
-        return {
-            **self._event_data,
-            "update_count": self._update_counter
-        }
+        return self._event_data
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option.
@@ -130,8 +125,6 @@ class WhoTouchedMeFingerSelect(SelectEntity):
 
         Called by http_receiver when an event is received.
         """
-        self._update_counter += 1
-
         # Store complete event data as attributes
         self._event_data = event_data
         
@@ -148,19 +141,11 @@ class WhoTouchedMeFingerSelect(SelectEntity):
                 self._user_name
             )
         
-        # WORKAROUND: Force state change by toggling to None first
-        # This ensures automations always trigger even with same finger
-        old_option = self._attr_current_option
-        self._attr_current_option = "none"
-        self.async_write_ha_state()
-        
-        # Now set the actual finger (with small delay to ensure two distinct events)
-        self._attr_current_option = old_option
+        # Schedule an update to Home Assistant
         self.async_write_ha_state()
         
         _LOGGER.debug(
-            "Updated select %s: %s (update_count: %d)",
+            "Updated select %s: %s",
             self.entity_id,
-            self._attr_current_option,
-            self._update_counter
+            self._attr_current_option
         )
